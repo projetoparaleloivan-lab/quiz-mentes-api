@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
 const Database = require('better-sqlite3');
@@ -79,23 +79,23 @@ async function sendCapiEvent(eventName, email, name, value, eventId, extra = {})
 
 // ── Email ─────────────────────────────────────────────────
 async function sendResultEmail(name, email, topMind) {
-  if (!EMAIL_USER || !EMAIL_PASS) {
-    console.log('[EMAIL] skipped — not configured');
+  const RESEND_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_KEY) {
+    console.log('[EMAIL] skipped — RESEND_API_KEY not configured');
     return;
   }
 
   const mind = minds[topMind];
   if (!mind) throw new Error(`Unknown mind: ${topMind}`);
 
+  console.log('[EMAIL] generating PDF for', topMind);
   const pdfBuffer = await generatePDF(mind, name);
+  console.log('[EMAIL] PDF generated, size:', pdfBuffer.length);
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: EMAIL_USER, pass: EMAIL_PASS },
-  });
+  const resend = new Resend(RESEND_KEY);
 
-  await transporter.sendMail({
-    from: `Quiz Mentes Brilhantes <${EMAIL_USER}>`,
+  const { data, error } = await resend.emails.send({
+    from: 'Quiz Mentes Brilhantes <onboarding@resend.dev>',
     to: email,
     subject: `${name}, seu resultado chegou — voce pensa como ${mind.name}!`,
     html: `
@@ -111,7 +111,7 @@ async function sendResultEmail(name, email, topMind) {
           <p style="font-size:11px;color:#8f7420;margin:8px 0 0;">— ${mind.name}</p>
         </div>
         <p style="font-size:14px;color:#b5aa8f;line-height:1.7;margin-bottom:28px;">
-          O relatorio completo de 4 paginas esta em anexo. Acesse o quiz online para ver sua analise interativa.
+          O relatorio completo de 4 paginas esta em anexo.
         </p>
         <a href="${QUIZ_URL}" style="display:inline-block;background:#c9a227;color:#12140f;font-weight:700;font-size:14px;padding:14px 28px;border-radius:8px;text-decoration:none;">
           Ver meu resultado online
@@ -121,12 +121,13 @@ async function sendResultEmail(name, email, topMind) {
     `,
     attachments: [{
       filename: `resultado-${topMind}.pdf`,
-      content: pdfBuffer,
+      content: pdfBuffer.toString('base64'),
       contentType: 'application/pdf',
     }],
   });
 
-  console.log(`[EMAIL] sent to ${email} (${topMind})`);
+  if (error) throw new Error(JSON.stringify(error));
+  console.log(`[EMAIL] sent to ${email} (${topMind}) id:`, data?.id);
 }
 
 // ── Routes ────────────────────────────────────────────────
@@ -188,18 +189,19 @@ app.post('/api/webhook/cakto', async (req, res) => {
     db.prepare('INSERT OR IGNORE INTO leads (name, email, top_mind, paid) VALUES (?,?,?,1)')
       .run(name, email.toLowerCase().trim(), '');
     // Email de recuperação
-    if (EMAIL_USER && EMAIL_PASS) {
-      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS } });
-      transporter.sendMail({
-        from: `Quiz Mentes Brilhantes <${EMAIL_USER}>`,
+    const RESEND_KEY = process.env.RESEND_API_KEY;
+    if (RESEND_KEY) {
+      const resend = new Resend(RESEND_KEY);
+      resend.emails.send({
+        from: 'Quiz Mentes Brilhantes <onboarding@resend.dev>',
         to: email,
-        subject: `${name ? name.split(' ')[0] : 'Olá'}, seu acesso foi liberado!`,
+        subject: `${name ? name.split(' ')[0] : 'Ola'}, seu acesso foi liberado!`,
         html: `
           <div style="font-family:sans-serif;max-width:580px;margin:0 auto;background:#12140f;color:#efe9d8;padding:40px 36px;border-radius:14px;">
             <p style="font-size:11px;letter-spacing:2px;color:#c9a227;">QUIZ MENTES BRILHANTES</p>
             <h1 style="font-size:22px;color:#fff;margin:16px 0 8px;">Pagamento confirmado!</h1>
             <p style="font-size:15px;line-height:1.7;color:#b5aa8f;margin-bottom:24px;">
-              Recebemos seu pagamento. Para liberar seu resultado, clique no botão abaixo, refaça o quiz rapidinho e clique em <strong style="color:#c9a227">"Já paguei — liberar acesso"</strong>.
+              Recebemos seu pagamento. Para liberar seu resultado, clique no botao abaixo, refaca o quiz rapidinho e clique em <strong style="color:#c9a227">"Ja paguei — liberar acesso"</strong>.
             </p>
             <a href="${QUIZ_URL}" style="display:inline-block;background:#c9a227;color:#12140f;font-weight:700;font-size:14px;padding:14px 28px;border-radius:8px;text-decoration:none;">
               Acessar meu resultado
@@ -214,9 +216,9 @@ app.post('/api/webhook/cakto', async (req, res) => {
 
   db.prepare('UPDATE leads SET paid = 1 WHERE email = ?').run(email.toLowerCase().trim());
 
-  const value = typeof amountCents === 'number' && amountCents > 100
-    ? amountCents / 100
-    : amountCents;
+  const value = typeof amount === 'number' && amount > 100
+    ? amount / 100
+    : amount;
 
   sendCapiEvent('Purchase', email, lead.name, value, null, { fbc, fbp, phone }).catch(console.error);
 
