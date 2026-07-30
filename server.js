@@ -181,9 +181,34 @@ app.post('/api/webhook/cakto', async (req, res) => {
     return;
   }
 
-  const lead = db.prepare('SELECT * FROM leads WHERE email = ?').get(email.toLowerCase().trim());
+  let lead = db.prepare('SELECT * FROM leads WHERE email = ?').get(email.toLowerCase().trim());
   if (!lead) {
-    console.log('[WEBHOOK] lead not found for:', email);
+    console.log('[WEBHOOK] lead not found for:', email, '— saving and sending recovery email');
+    // Salva como pago mas sem topMind — manda email de recuperação
+    db.prepare('INSERT OR IGNORE INTO leads (name, email, top_mind, paid) VALUES (?,?,?,1)')
+      .run(name, email.toLowerCase().trim(), '');
+    // Email de recuperação
+    if (EMAIL_USER && EMAIL_PASS) {
+      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS } });
+      transporter.sendMail({
+        from: `Quiz Mentes Brilhantes <${EMAIL_USER}>`,
+        to: email,
+        subject: `${name ? name.split(' ')[0] : 'Olá'}, seu acesso foi liberado!`,
+        html: `
+          <div style="font-family:sans-serif;max-width:580px;margin:0 auto;background:#12140f;color:#efe9d8;padding:40px 36px;border-radius:14px;">
+            <p style="font-size:11px;letter-spacing:2px;color:#c9a227;">QUIZ MENTES BRILHANTES</p>
+            <h1 style="font-size:22px;color:#fff;margin:16px 0 8px;">Pagamento confirmado!</h1>
+            <p style="font-size:15px;line-height:1.7;color:#b5aa8f;margin-bottom:24px;">
+              Recebemos seu pagamento. Para liberar seu resultado, clique no botão abaixo, refaça o quiz rapidinho e clique em <strong style="color:#c9a227">"Já paguei — liberar acesso"</strong>.
+            </p>
+            <a href="${QUIZ_URL}" style="display:inline-block;background:#c9a227;color:#12140f;font-weight:700;font-size:14px;padding:14px 28px;border-radius:8px;text-decoration:none;">
+              Acessar meu resultado
+            </a>
+            <p style="font-size:11px;color:#444;margin-top:36px;">quizmentes.vercel.app</p>
+          </div>
+        `
+      }).catch(e => console.error('[EMAIL] recovery failed:', e.message));
+    }
     return;
   }
 
