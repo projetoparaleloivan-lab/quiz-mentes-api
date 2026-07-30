@@ -20,8 +20,8 @@ function generatePDF(mind, personName) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    const W = doc.page.width  || 595.28;
-    const H = doc.page.height || 841.89;
+    const W = 595.28;
+    const H = 841.89;
     const PAD = 40;
 
     function fill(x, y, w, h, c) {
