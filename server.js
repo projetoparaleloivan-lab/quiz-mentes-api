@@ -225,6 +225,23 @@ app.post('/api/webhook/cakto', async (req, res) => {
   });
 });
 
+// Reenviar email manualmente
+app.post('/api/resend-email', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  const lead = db.prepare('SELECT * FROM leads WHERE email = ?').get(email.toLowerCase().trim());
+  if (!lead) return res.status(404).json({ error: 'lead not found' });
+  if (!lead.top_mind) return res.status(400).json({ error: 'top_mind not set for this lead' });
+
+  try {
+    await sendResultEmail(lead.name, email, lead.top_mind);
+    res.json({ ok: true, sent_to: email, top_mind: lead.top_mind });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
