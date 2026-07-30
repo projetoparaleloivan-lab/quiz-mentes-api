@@ -161,17 +161,22 @@ app.post('/api/webhook/cakto', async (req, res) => {
 
   const body = req.body;
 
-  // Tenta extrair email do payload (ajustar se Cakto mudar o formato)
+  // Formato Cakto: { event: "purchase_approved", data: { customer: { email, name }, amount } }
   const email =
-    body?.customer?.email ||
-    body?.buyer?.email    ||
-    body?.email           ||
-    body?.data?.customer?.email;
+    body?.data?.customer?.email ||
+    body?.customer?.email       ||
+    body?.buyer?.email          ||
+    body?.email;
+
+  const name =
+    body?.data?.customer?.name ||
+    body?.customer?.name       ||
+    '';
 
   const amountCents =
-    body?.amount          ||
-    body?.total           ||
-    body?.data?.amount    ||
+    body?.data?.amount ||
+    body?.amount       ||
+    body?.total        ||
     999;
 
   if (!email) {
