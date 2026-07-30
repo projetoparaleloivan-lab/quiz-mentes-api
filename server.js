@@ -38,16 +38,22 @@ db.exec(`
 `);
 
 // ── CAPI ──────────────────────────────────────────────────
-async function sendCapiEvent(eventName, email, name, value, eventId) {
+async function sendCapiEvent(eventName, email, name, value, eventId, extra = {}) {
   if (!META_CAPI_TOKEN || !META_PIXEL_ID) {
     console.log('[CAPI] skipped — token/pixel not configured');
     return;
   }
 
-  const em = crypto.createHash('sha256').update(email.toLowerCase().trim()).digest('hex');
-  const fn = name
-    ? crypto.createHash('sha256').update(name.split(' ')[0].toLowerCase().trim()).digest('hex')
-    : undefined;
+  const hash = s => crypto.createHash('sha256').update(s.toLowerCase().trim()).digest('hex');
+
+  const userData = {
+    em: [hash(email)],
+    ...(name && { fn: [hash(name.split(' ')[0])] }),
+    ...(name.split(' ')[1] && { ln: [hash(name.split(' ').slice(1).join(' '))] }),
+    ...(extra.phone && { ph: [hash(extra.phone.replace(/\D/g, ''))] }),
+    ...(extra.fbc   && { fbc: extra.fbc }),
+    ...(extra.fbp   && { fbp: extra.fbp }),
+  };
 
   const event = {
     event_name: eventName,
@@ -55,7 +61,7 @@ async function sendCapiEvent(eventName, email, name, value, eventId) {
     event_id: eventId || crypto.randomUUID(),
     action_source: 'website',
     event_source_url: QUIZ_URL,
-    user_data: { em: [em], ...(fn && { fn: [fn] }) },
+    user_data: userData,
     ...(value != null && { custom_data: { value, currency: 'BRL' } }),
   };
 
@@ -161,23 +167,14 @@ app.post('/api/webhook/cakto', async (req, res) => {
 
   const body = req.body;
 
-  // Formato Cakto: { event: "purchase_approved", data: { customer: { email, name }, amount } }
-  const email =
-    body?.data?.customer?.email ||
-    body?.customer?.email       ||
-    body?.buyer?.email          ||
-    body?.email;
-
-  const name =
-    body?.data?.customer?.name ||
-    body?.customer?.name       ||
-    '';
-
-  const amountCents =
-    body?.data?.amount ||
-    body?.amount       ||
-    body?.total        ||
-    999;
+  // Formato Cakto oficial
+  const data   = body?.data || {};
+  const email  = data?.customer?.email;
+  const name   = data?.customer?.name || '';
+  const amount = data?.amount || data?.baseAmount || 9.99;
+  const fbc    = data?.fbc || null;
+  const fbp    = data?.fbp || null;
+  const phone  = data?.customer?.phone || null;
 
   if (!email) {
     console.log('[WEBHOOK] no email in payload');
@@ -196,7 +193,7 @@ app.post('/api/webhook/cakto', async (req, res) => {
     ? amountCents / 100
     : amountCents;
 
-  sendCapiEvent('Purchase', email, lead.name, value).catch(console.error);
+  sendCapiEvent('Purchase', email, lead.name, value, null, { fbc, fbp, phone }).catch(console.error);
 
   sendResultEmail(lead.name, email, lead.top_mind).catch(e => {
     console.error('[EMAIL] failed:', e.message);
