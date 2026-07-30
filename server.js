@@ -233,7 +233,7 @@ app.get('/api/verify-payment', (req, res) => {
   res.json({ paid: lead?.paid === 1, top_mind: lead?.top_mind || null });
 });
 
-// Reenviar email manualmente
+// Reenviar email manualmente (async — responde imediato)
 app.post('/api/resend-email', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'email required' });
@@ -242,12 +242,12 @@ app.post('/api/resend-email', async (req, res) => {
   if (!lead) return res.status(404).json({ error: 'lead not found' });
   if (!lead.top_mind) return res.status(400).json({ error: 'top_mind not set for this lead' });
 
-  try {
-    await sendResultEmail(lead.name, email, lead.top_mind);
-    res.json({ ok: true, sent_to: email, top_mind: lead.top_mind });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+  res.json({ ok: true, sent_to: email, top_mind: lead.top_mind });
+
+  console.log('[RESEND] starting email for', email, lead.top_mind);
+  sendResultEmail(lead.name, email, lead.top_mind)
+    .then(() => console.log('[RESEND] success:', email))
+    .catch(e => console.error('[RESEND] failed:', e.message, e.stack));
 });
 
 // Health check
