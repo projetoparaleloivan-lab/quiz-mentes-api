@@ -225,6 +225,14 @@ app.post('/api/webhook/cakto', async (req, res) => {
   });
 });
 
+// Verificar se email pagou
+app.get('/api/verify-payment', (req, res) => {
+  const email = req.query.email;
+  if (!email) return res.status(400).json({ paid: false });
+  const lead = db.prepare('SELECT paid, top_mind FROM leads WHERE email = ?').get(email.toLowerCase().trim());
+  res.json({ paid: lead?.paid === 1, top_mind: lead?.top_mind || null });
+});
+
 // Reenviar email manualmente
 app.post('/api/resend-email', async (req, res) => {
   const { email } = req.body;
