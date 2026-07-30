@@ -227,6 +227,49 @@ app.post('/api/webhook/cakto', async (req, res) => {
   });
 });
 
+// Webhook da PushinPay — confirma pagamento
+app.post('/api/webhook/pushinpay', async (req, res) => {
+  console.log('[PUSHINPAY] payload:', JSON.stringify(req.body));
+  res.json({ ok: true });
+
+  const body = req.body;
+  const status = body?.status || body?.payment_status || body?.data?.status || '';
+  if (!['approved', 'paid', 'completed', 'PAID', 'APPROVED'].includes(status)) {
+    console.log('[PUSHINPAY] status ignorado:', status);
+    return;
+  }
+
+  // PushinPay pode enviar email em vários lugares — tenta todos
+  const email = body?.customer?.email || body?.email || body?.data?.customer?.email || body?.payer_email || '';
+  const name  = body?.customer?.name  || body?.name  || body?.data?.customer?.name  || '';
+  const amount = body?.value || body?.amount || body?.data?.value || 9.99;
+
+  if (!email) {
+    console.log('[PUSHINPAY] sem email no payload');
+    return;
+  }
+
+  const emailNorm = email.toLowerCase().trim();
+  db.prepare(`
+    INSERT INTO leads (name, email, top_mind, paid)
+    VALUES (?, ?, '', 1)
+    ON CONFLICT(email) DO UPDATE SET paid=1, name=CASE WHEN excluded.name != '' THEN excluded.name ELSE name END
+  `).run(name, emailNorm);
+
+  const lead = db.prepare('SELECT * FROM leads WHERE email = ?').get(emailNorm);
+  const value = typeof amount === 'number' && amount > 100 ? amount / 100 : amount;
+
+  sendCapiEvent('Purchase', email, lead.name, value, null, {}).catch(console.error);
+
+  if (lead.top_mind) {
+    sendResultEmail(lead.name, email, lead.top_mind).catch(e => {
+      console.error('[EMAIL] failed:', e.message);
+    });
+  } else {
+    console.log('[PUSHINPAY] lead sem topMind — email de recuperação pendente para', email);
+  }
+});
+
 // Verificar se email pagou
 app.get('/api/verify-payment', (req, res) => {
   const email = req.query.email;
